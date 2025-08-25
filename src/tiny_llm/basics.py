@@ -12,7 +12,19 @@ def linear(
     w: mx.array,
     bias: mx.array | None = None,
 ) -> mx.array:
-    pass
+    """
+    I is input dimension. O is output dimension.
+
+    x: N.. x I
+    w: O x I
+    bias: O
+    output: N.. x O
+    """
+
+    y = x @ w.T
+    if bias is not None:
+        y += bias
+    return y
 
 
 def silu(x: mx.array) -> mx.array:
