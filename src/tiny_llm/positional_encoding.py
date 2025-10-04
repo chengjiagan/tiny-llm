@@ -59,7 +59,7 @@ class RoPE:
         y1 = x0 * sin_slice + x1 * cos_slice
 
         if self.traditional:
-            y = mx.stack([y0, y1], axis=-1).flatten(-2)
+            y = mx.stack([y0, y1], axis=-1).flatten(-2, -1)
         else:
             y = mx.concat([y0, y1], axis=-1)
 

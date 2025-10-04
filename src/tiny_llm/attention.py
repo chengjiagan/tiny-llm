@@ -16,18 +16,31 @@ def scaled_dot_product_attention_simple(
     key: N.. x L x D
     value: N.. x L x D
     query: N.. x L x D
-    output: N.. x L x D
+    mask: N.. x L x L
     scale = 1/sqrt(D) if not specified
     output: N.. x L x D
     """
+    assert len(query.shape) >= 2, f"expect query to have at least 2 dims, but get {len(query.shape)}"
+    assert len(key.shape) >= 2, f"expect key to have at least 2 dims, but get {len(key.shape)}"
+    assert len(value.shape) >= 2, f"expect value to have at least 2 dims, but get {len(value.shape)}"
+    if mask is not None:
+        assert len(mask.shape) >= 2, f"expect mask to have least 2 dims, but get {len(mask.shape)}"
 
-    D = value.shape[-1]
+    L, D = query.shape[-2:]
+    assert key.shape[-2] == L, f"expect key to have the same sequence length as query ({L}), but get {key.shape[-2]}"
+    assert key.shape[-1] == D, f"expect key to have the same head dimension as query ({D}), but get {key.shape[-1]}"
+    assert value.shape[-2] == L, f"expect value to have the same sequence length as query ({L}), but get {value.shape[-2]}"
+    assert value.shape[-1] == D, f"expect value to have the same head dimension as query ({D}), but get {value.shape[-1]}"
+    if mask is not None:
+        assert mask.shape[-1] == L, f"expect the last dim of mask to have the same size as sequence length ({L}), but get {mask.shape[-1]}."
+        assert mask.shape[-2] == L, f"expect the second to last dim of mask to have the same size as sequence length ({L}), but get {mask.shape[-2]}."
+
     attn_scale = mx.rsqrt(D) if scale is None else mx.array(scale)
 
-    attn_weight = query @ key.swapaxes(-2, -1) * attn_scale
+    attn_score = query @ key.swapaxes(-2, -1) * attn_scale
     if mask is not None:
-        attn_weight += mask
-    attn = softmax(attn_weight, -1) @ value
+        attn_score += mask
+    attn = softmax(attn_score, axis=-1) @ value
 
     return attn
 
@@ -80,7 +93,8 @@ class SimpleMultiHeadAttention:
 
 
 def causal_mask(L: int, S: int, dtype: mx.Dtype) -> mx.array:
-    pass
+    assert L <= S, f"expect L <= S, but get L={L}, S={S}."
+    return mx.triu(mx.full((L, S), -mx.inf, dtype), S - L + 1)
 
 
 def scaled_dot_product_attention_grouped(
@@ -90,7 +104,66 @@ def scaled_dot_product_attention_grouped(
     scale: float | None = None,
     mask: mx.array | str | None = None,
 ) -> mx.array:
-    pass
+    """
+    N.. is zero or more dimensions for batches
+    H_q is the number of query heads
+    H is the number of key/value heads (H_q must be divisible by H)
+    L is the query sequence length
+    S is the key/value sequence length
+    D is the head dimension
+
+    query: N.. x H_q x L x D
+    key: N.. x H x S x D
+    value: N.. x H x S x D
+    mask: N.. x H_q x L x S
+    output: N.. x H_q x L x D
+    """
+    assert len(query.shape) >= 3, f"expect query to have at least 3 dims, but get {len(query.shape)}."
+    assert len(key.shape) >= 3, f"expect key to have at least 3 dims, but get {len(key.shape)}."
+    assert len(value.shape) >= 3, f"expect value to have at least 3 dims, but get {len(value.shape)}."
+    if type(mask) == mx.array:
+        assert len(mask.shape) >= 3, f"expect mask to have at least 3 dims, but get {len(mask.shape)}."
+    
+    H_q, L, D = query.shape[-3:]
+    H, S = key.shape[-3:-1]
+    assert H_q % H == 0, f"expect query's number of heads ({H_q}) to be divisible by key's number of heads ({H})."
+    assert key.shape[-1] == D, f"expect key to have the same head dimension as query ({D}), but get {key.shape[-1]}."
+    assert value.shape[-1] == D, f"expect value to have the same head dimension as query ({D}), but get {value.shape[-1]}."
+    assert value.shape[-2] == S, f"expect value to have the same sequence length as key ({S}), but get {value.shape[-2]}."
+    assert value.shape[-3] == H, f"expect value to have the same number of heads as key ({H}), but get {key.shape[-3]}."
+    if type(mask) == mx.array:
+        assert mask.shape[-1] == S, f"expect the last dim of mask to have the same size as key sequence length ({S}), but get {mask.shape[-1]}"
+        assert mask.shape[-2] == L, f"expect the second to last dims of mask to have the same size as query sequence length ({L}), but get {mask.shape[-2]}"
+        assert mask.shape[-3] == H_q, f"expect mask to have the same number of heads as query ({H_q}), but get {mask.shape[-3]}"
+    elif type(mask) == str:
+        assert mask == "causal", f"only causal mask is supported, but get {mask}."
+    else:
+        assert mask is None, f"unsupported mask type {type(mask)}."
+
+
+    n_repeats = H_q // H
+    # reshape query, key, and value to add the head group dim
+    query = mx.unflatten(query, axis=-3, shape=(H, n_repeats))
+    key = mx.expand_dims(key, axis=-3)
+    value = mx.expand_dims(value, axis=-3)
+
+    mask_array: None | mx.array
+    if mask is None:
+        mask_array = mx.array(0, dtype=query.dtype)
+    elif type(mask) == mx.array:
+        # reshape mask to add the head group dim
+        mask_array = mx.unflatten(mask, axis=-3, shape=(H, n_repeats))
+    else:
+        mask_array = causal_mask(L, S, dtype=query.dtype)
+
+    # normal multi-head attention
+    attn_scale = mx.rsqrt(D) if scale is None else mx.array(scale)
+    attn_score = query @ key.swapaxes(-2, -1) * attn_scale + mask_array
+    attn = softmax(attn_score, axis=-1) @ value
+
+    # flatten head dim and head group dim
+    attn = attn.flatten(-4, -3)
+    return attn
 
 
 def flash_attention(
