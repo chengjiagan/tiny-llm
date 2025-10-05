@@ -105,10 +105,33 @@ class Qwen2MLP:
         w_up: mx.array,
         w_down: mx.array,
     ):
-        pass
+        """
+        N.. is zero or more dimensions for batches
+        E is hidden_size (embedding dimension of the model)
+        I is intermediate_size (dimension of the hidden layer in MLP)
+        L is the sequence length
+
+        input: N.. x L x E
+        w_gate: I x E
+        w_up: I x E
+        w_down: E x I
+        output: N.. x L x E
+        """
+        assert w_gate.shape == (hidden_dim, dim), f"expect w_gate's shape to be (hidden_dim, dim), but get w_gate.shape={w_gate.shape}, dim={dim}, hidden_dim={hidden_dim}."
+        assert w_up.shape == (hidden_dim, dim), f"expect w_up's shape to be (hidden_dim, dim), but get w_up.shape={w_up.shape}, dim={dim}, hidden_dim={hidden_dim}."
+        assert w_down.shape == (dim, hidden_dim), f"expect w_down's shape to be (dim, hidden_dim), but get w_down.shape={w_down.shape}, dim={dim}, hidden_dim={hidden_dim}."
+
+        self.dim = dim # input size
+        self.hidden_dim = hidden_dim # intermediate size
+        self.w_gate = w_gate
+        self.w_up = w_up
+        self.w_down = w_down
 
     def __call__(self, x: mx.array) -> mx.array:
-        pass
+        assert len(x.shape) >= 2, f"expect input x to have at least 2 dimensions, but get {len(x.shape)}."
+        assert x.shape[-1] == self.dim, f"expect the last dimension of input x to be {self.dim}, but get {x.shape[-1]}."
+
+        return linear(silu(linear(x, self.w_gate)) * linear(x, self.w_up), self.w_down)
 
 
 class Qwen2TransformerBlock:
