@@ -11,8 +11,34 @@ def simple_generate(
     prompt: str,
     sampler: Callable[[mx.array], mx.array] | None,
 ) -> str:
-    def _step(model, y):
-        pass
+    # helper function to get the next token
+    def _step(model: Qwen2ModelWeek1, y: mx.array) -> int:
+        x = y[None, :] # add a batch dim
+        output_logits = model(x)
+        logits = output_logits[:, -1, :]
+        return int(mx.argmax(logits).item())
+
+    # get detokenizer from tokenizer wrapper
+    detokenizer = tokenizer.detokenizer
+
+    # tokenize the prompt
+    tokens = mx.array(tokenizer.encode(prompt, add_special_tokens=False))
+
+    # generate tokens
+    while True:
+        next_token = _step(model, tokens)
+        # stop if next token is eos
+        if next_token in tokenizer.eos_token_ids:
+            break
+
+        detokenizer.add_token(next_token)
+        tokens = mx.concat([tokens, mx.array([next_token])])
+
+    # get detokenized output and print it
+    output = detokenizer.last_segment
+    print(output)
+
+    return output
 
 
 def simple_generate_with_kv_cache(

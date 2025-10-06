@@ -245,7 +245,7 @@ class Qwen2ModelWeek1:
         # last rms norm
         x = self.norm(x)
 
-        # get posibility distribution
+        # get token probability distribution
         if self.tie_word_embeddings:
             prob = self.embed_tokens.as_linear(x)
         else:
