@@ -14,9 +14,14 @@ def simple_generate(
     # helper function to get the next token
     def _step(model: Qwen2ModelWeek1, y: mx.array) -> int:
         x = y[None, :] # add a batch dim
-        output_logits = model(x)
-        logits = output_logits[:, -1, :]
-        return int(mx.argmax(logits).item())
+        out = model(x)
+        logits = out[:, -1, :]
+        if sampler is None:
+            # use greedy sampler
+            token = mx.argmax(logits, axis=-1)
+        else:
+            token = sampler(logits)
+        return int(token.item())
 
     # get detokenizer from tokenizer wrapper
     detokenizer = tokenizer.detokenizer

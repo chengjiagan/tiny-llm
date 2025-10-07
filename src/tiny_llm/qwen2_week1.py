@@ -245,11 +245,11 @@ class Qwen2ModelWeek1:
         # last rms norm
         x = self.norm(x)
 
-        # get token probability distribution
+        # get logits
         if self.tie_word_embeddings:
-            prob = self.embed_tokens.as_linear(x)
+            logits = self.embed_tokens.as_linear(x)
         else:
-            prob = linear(x, self.w_lm_head)
+            logits = linear(x, self.w_lm_head)
 
-        return prob
+        return logits
 
